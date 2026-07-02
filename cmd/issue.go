@@ -168,7 +168,19 @@ func renderIssueCollection(issues *api.Issues, plaintext, jsonOut bool, emptyMes
 		return
 	}
 
+	// Show Project column if any issue has project data
+	showProject := false
+	for _, issue := range issues.Nodes {
+		if issue.Project != nil {
+			showProject = true
+			break
+		}
+	}
+
 	headers := []string{"Title", "State", "Assignee", "Team", "Cycle", "Created", "URL"}
+	if showProject {
+		headers = []string{"Title", "State", "Assignee", "Team", "Project", "Created", "URL"}
+	}
 	rows := make([][]string, len(issues.Nodes))
 
 	for i, issue := range issues.Nodes {
@@ -190,6 +202,11 @@ func renderIssueCollection(issues *api.Issues, plaintext, jsonOut bool, emptyMes
 			case issue.Cycle.Number > 0:
 				cycle = fmt.Sprintf("Cycle %d", issue.Cycle.Number)
 			}
+		}
+
+		project := "-"
+		if issue.Project != nil {
+			project = truncateString(issue.Project.Name, 20)
 		}
 
 		state := ""
@@ -219,14 +236,26 @@ func renderIssueCollection(issues *api.Issues, plaintext, jsonOut bool, emptyMes
 			assignee = color.New(color.FgYellow).Sprint(assignee)
 		}
 
-		rows[i] = []string{
-			truncateString(issue.Title, 40),
-			state,
-			assignee,
-			team,
-			cycle,
-			issue.CreatedAt.Format("2006-01-02"),
-			issue.URL,
+		if showProject {
+			rows[i] = []string{
+				truncateString(issue.Title, 40),
+				state,
+				assignee,
+				team,
+				project,
+				issue.CreatedAt.Format("2006-01-02"),
+				issue.URL,
+			}
+		} else {
+			rows[i] = []string{
+				truncateString(issue.Title, 40),
+				state,
+				assignee,
+				team,
+				cycle,
+				issue.CreatedAt.Format("2006-01-02"),
+				issue.URL,
+			}
 		}
 	}
 
@@ -853,6 +882,15 @@ func buildIssueFilter(cmd *cobra.Command) map[string]interface{} {
 
 	if priority, _ := cmd.Flags().GetInt("priority"); priority != -1 {
 		filter["priority"] = map[string]interface{}{"eq": priority}
+	}
+
+	if project, _ := cmd.Flags().GetString("project"); project != "" {
+		// Accept either a UUID (exact ID match) or a name substring
+		if len(project) == 36 && strings.Count(project, "-") == 4 {
+			filter["project"] = map[string]interface{}{"id": map[string]interface{}{"eq": project}}
+		} else {
+			filter["project"] = map[string]interface{}{"name": map[string]interface{}{"containsIgnoreCase": project}}
+		}
 	}
 
 	if cycle, _ := cmd.Flags().GetString("cycle"); cycle != "" {
@@ -2399,6 +2437,7 @@ func init() {
 	issueListCmd.Flags().StringP("assignee", "a", "", "Filter by assignee (email or 'me')")
 	issueListCmd.Flags().StringP("state", "s", "", "Filter by state name")
 	issueListCmd.Flags().StringP("team", "t", "", "Filter by team key")
+	issueListCmd.Flags().StringP("project", "P", "", "Filter by project name (substring) or project ID")
 	issueListCmd.Flags().IntP("priority", "r", -1, "Filter by priority (0=None, 1=Urgent, 2=High, 3=Normal, 4=Low)")
 	issueListCmd.Flags().StringP("cycle", "y", "", "Filter by cycle ('current' or cycle number)")
 	issueListCmd.Flags().IntP("limit", "l", 50, "Maximum number of issues to fetch")

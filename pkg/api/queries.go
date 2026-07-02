@@ -451,6 +451,7 @@ func (c *Client) GetIssues(ctx context.Context, filter map[string]interface{}, f
 					estimate
 					createdAt
 					updatedAt
+					completedAt
 					dueDate
 					url
 					state {
@@ -472,6 +473,10 @@ func (c *Client) GetIssues(ctx context.Context, filter map[string]interface{}, f
 					cycle {
 						id
 						number
+						name
+					}
+					project {
+						id
 						name
 					}
 					labels {
@@ -529,6 +534,7 @@ func (c *Client) IssueSearch(ctx context.Context, term string, filter map[string
 					estimate
 					createdAt
 					updatedAt
+					completedAt
 					dueDate
 					url
 					state {
@@ -790,6 +796,31 @@ func (c *Client) GetIssue(ctx context.Context, id string) (*Issue, error) {
 					nodes {
 						id
 						type
+						issue {
+							id
+							identifier
+							title
+						}
+						relatedIssue {
+							id
+							identifier
+							title
+							state {
+								name
+								type
+							}
+						}
+					}
+				}
+				inverseRelations {
+					nodes {
+						id
+						type
+						issue {
+							id
+							identifier
+							title
+						}
 						relatedIssue {
 							id
 							identifier
@@ -866,7 +897,10 @@ func (c *Client) GetIssue(ctx context.Context, id string) (*Issue, error) {
 	}
 
 	var response struct {
-		Issue Issue `json:"issue"`
+		Issue struct {
+			Issue
+			InverseRelations *IssueRelations `json:"inverseRelations"`
+		} `json:"issue"`
 	}
 
 	err := c.Execute(ctx, query, variables, &response)
@@ -874,7 +908,19 @@ func (c *Client) GetIssue(ctx context.Context, id string) (*Issue, error) {
 		return nil, err
 	}
 
-	return &response.Issue, nil
+	issue := response.Issue.Issue
+	// Merge inverse relations (tagged so callers know the direction).
+	if response.Issue.InverseRelations != nil {
+		if issue.Relations == nil {
+			issue.Relations = &IssueRelations{}
+		}
+		for i := range response.Issue.InverseRelations.Nodes {
+			response.Issue.InverseRelations.Nodes[i].Inverse = true
+			issue.Relations.Nodes = append(issue.Relations.Nodes, response.Issue.InverseRelations.Nodes[i])
+		}
+	}
+
+	return &issue, nil
 }
 
 // GetIssueAgentSession returns issue delegate and agent sessions in recent comments.
@@ -1134,7 +1180,7 @@ func (c *Client) GetProject(ctx context.Context, id string) (*Project, error) {
 						admin
 					}
 				}
-				issues(first: 50, orderBy: updatedAt) {
+				issues(first: 250, orderBy: updatedAt) {
 					nodes {
 						id
 						identifier
@@ -1161,6 +1207,10 @@ func (c *Client) GetProject(ctx context.Context, id string) (*Project, error) {
 								color
 							}
 						}
+					}
+					pageInfo {
+						hasNextPage
+						endCursor
 					}
 				}
 				projectUpdates(first: 10) {

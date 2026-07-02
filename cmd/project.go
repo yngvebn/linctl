@@ -450,7 +450,22 @@ var projectGetCmd = &cobra.Command{
 
 			// Show recent issues
 			if project.Issues != nil && len(project.Issues.Nodes) > 0 {
-				fmt.Printf("\n## Issues (%d total)\n", len(project.Issues.Nodes))
+				total := len(project.Issues.Nodes)
+				counts := map[string]int{"completed": 0, "started": 0, "unstarted": 0, "backlog": 0, "canceled": 0, "triage": 0}
+				for _, issue := range project.Issues.Nodes {
+					if issue.State != nil {
+						counts[issue.State.Type]++
+					}
+				}
+				done := counts["completed"]
+				inProgress := counts["started"]
+				notStarted := counts["unstarted"] + counts["backlog"] + counts["triage"]
+				canceled := counts["canceled"]
+				fmt.Printf("\n## Issues (%d total — %d done, %d in progress, %d not started", total, done, inProgress, notStarted)
+				if canceled > 0 {
+					fmt.Printf(", %d canceled", canceled)
+				}
+				fmt.Println(")")
 				for _, issue := range project.Issues.Nodes {
 					stateStr := ""
 					if issue.State != nil {
@@ -580,14 +595,36 @@ var projectGetCmd = &cobra.Command{
 				}
 			}
 
-			// Show sample issues if available
+			// Show issue breakdown by state
 			if project.Issues != nil && len(project.Issues.Nodes) > 0 {
-				fmt.Printf("\n%s\n", color.New(color.Bold).Sprint("Recent Issues:"))
-				for i, issue := range project.Issues.Nodes {
-					if i >= 5 {
-						break // Show only first 5
+				total := len(project.Issues.Nodes)
+				counts := map[string]int{"completed": 0, "started": 0, "unstarted": 0, "backlog": 0, "canceled": 0, "triage": 0}
+				for _, issue := range project.Issues.Nodes {
+					if issue.State != nil {
+						counts[issue.State.Type]++
 					}
-					stateIcon := "○"
+				}
+				done := counts["completed"]
+				inProgress := counts["started"]
+				notStarted := counts["unstarted"] + counts["backlog"] + counts["triage"]
+				canceled := counts["canceled"]
+
+				fmt.Printf("\n%s (%d total)\n", color.New(color.Bold).Sprint("Issues:"), total)
+				fmt.Printf("  %s %d done",
+					color.New(color.FgGreen).Sprint("✓"), done)
+				fmt.Printf("  %s %d in progress",
+					color.New(color.FgBlue).Sprint("◐"), inProgress)
+				fmt.Printf("  %s %d not started",
+					color.New(color.FgWhite).Sprint("○"), notStarted)
+				if canceled > 0 {
+					fmt.Printf("  %s %d canceled",
+						color.New(color.FgRed).Sprint("✗"), canceled)
+				}
+				fmt.Println()
+
+				fmt.Printf("\n%s\n", color.New(color.Bold).Sprint("All Issues:"))
+				for _, issue := range project.Issues.Nodes {
+					stateIcon := color.New(color.FgWhite).Sprint("○")
 					if issue.State != nil {
 						switch issue.State.Type {
 						case "completed":
@@ -598,7 +635,7 @@ var projectGetCmd = &cobra.Command{
 							stateIcon = color.New(color.FgRed).Sprint("✗")
 						}
 					}
-					assignee := "Unassigned"
+					assignee := color.New(color.FgYellow).Sprint("Unassigned")
 					if issue.Assignee != nil {
 						assignee = issue.Assignee.Name
 					}
