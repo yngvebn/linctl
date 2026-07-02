@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/dorkitude/linctl/pkg/auth"
-	"github.com/dorkitude/linctl/pkg/output"
+	"github.com/yngvebn/linctl/pkg/auth"
+	"github.com/yngvebn/linctl/pkg/output"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"

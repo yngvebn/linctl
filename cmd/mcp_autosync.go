@@ -6,8 +6,8 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/dorkitude/linctl/pkg/auth"
-	"github.com/dorkitude/linctl/pkg/mcpcache"
+	"github.com/yngvebn/linctl/pkg/auth"
+	"github.com/yngvebn/linctl/pkg/mcpcache"
 	"github.com/spf13/cobra"
 )
 

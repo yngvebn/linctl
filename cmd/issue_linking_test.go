@@ -3,7 +3,7 @@ package cmd
 import (
 	"testing"
 
-	"github.com/dorkitude/linctl/pkg/api"
+	"github.com/yngvebn/linctl/pkg/api"
 )
 
 func TestIsUnsetValue(t *testing.T) {

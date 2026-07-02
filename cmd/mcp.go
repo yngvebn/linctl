@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dorkitude/linctl/pkg/api"
-	"github.com/dorkitude/linctl/pkg/auth"
-	"github.com/dorkitude/linctl/pkg/mcpcache"
-	"github.com/dorkitude/linctl/pkg/output"
+	"github.com/yngvebn/linctl/pkg/api"
+	"github.com/yngvebn/linctl/pkg/auth"
+	"github.com/yngvebn/linctl/pkg/mcpcache"
+	"github.com/yngvebn/linctl/pkg/output"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )

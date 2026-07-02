@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dorkitude/linctl/pkg/api"
+	"github.com/yngvebn/linctl/pkg/api"
 	"github.com/spf13/viper"
 )
 

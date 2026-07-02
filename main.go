@@ -3,7 +3,7 @@ package main
 import (
 	_ "embed"
 
-	"github.com/dorkitude/linctl/cmd"
+	"github.com/yngvebn/linctl/cmd"
 )
 
 //go:embed README.md

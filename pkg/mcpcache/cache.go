@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dorkitude/linctl/pkg/api"
+	"github.com/yngvebn/linctl/pkg/api"
 )
 
 const (
