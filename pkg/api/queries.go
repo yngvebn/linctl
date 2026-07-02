@@ -486,6 +486,46 @@ func (c *Client) GetIssues(ctx context.Context, filter map[string]interface{}, f
 							color
 						}
 					}
+					relations {
+						nodes {
+							id
+							type
+							issue {
+								id
+								identifier
+								title
+							}
+							relatedIssue {
+								id
+								identifier
+								title
+								state {
+									name
+									type
+								}
+							}
+						}
+					}
+					inverseRelations {
+						nodes {
+							id
+							type
+							issue {
+								id
+								identifier
+								title
+							}
+							relatedIssue {
+								id
+								identifier
+								title
+								state {
+									name
+									type
+								}
+							}
+						}
+					}
 				}
 				pageInfo {
 					hasNextPage
@@ -509,7 +549,13 @@ func (c *Client) GetIssues(ctx context.Context, filter map[string]interface{}, f
 	}
 
 	var response struct {
-		Issues Issues `json:"issues"`
+		Issues struct {
+			Nodes []struct {
+				Issue
+				InverseRelations *IssueRelations `json:"inverseRelations"`
+			} `json:"nodes"`
+			PageInfo PageInfo `json:"pageInfo"`
+		} `json:"issues"`
 	}
 
 	err := c.Execute(ctx, query, variables, &response)
@@ -517,7 +563,29 @@ func (c *Client) GetIssues(ctx context.Context, filter map[string]interface{}, f
 		return nil, err
 	}
 
-	return &response.Issues, nil
+	result := &Issues{PageInfo: response.Issues.PageInfo}
+	for _, n := range response.Issues.Nodes {
+		issue := n.Issue
+		mergeInverseRelations(&issue, n.InverseRelations)
+		result.Nodes = append(result.Nodes, issue)
+	}
+
+	return result, nil
+}
+
+// mergeInverseRelations appends inverse-direction relations (tagged so callers
+// know the direction) into issue.Relations, initializing it if needed.
+func mergeInverseRelations(issue *Issue, inverse *IssueRelations) {
+	if inverse == nil || len(inverse.Nodes) == 0 {
+		return
+	}
+	if issue.Relations == nil {
+		issue.Relations = &IssueRelations{}
+	}
+	for i := range inverse.Nodes {
+		inverse.Nodes[i].Inverse = true
+		issue.Relations.Nodes = append(issue.Relations.Nodes, inverse.Nodes[i])
+	}
 }
 
 // IssueSearch returns issues that match a full-text query
@@ -565,6 +633,46 @@ func (c *Client) IssueSearch(ctx context.Context, term string, filter map[string
 							color
 						}
 					}
+					relations {
+						nodes {
+							id
+							type
+							issue {
+								id
+								identifier
+								title
+							}
+							relatedIssue {
+								id
+								identifier
+								title
+								state {
+									name
+									type
+								}
+							}
+						}
+					}
+					inverseRelations {
+						nodes {
+							id
+							type
+							issue {
+								id
+								identifier
+								title
+							}
+							relatedIssue {
+								id
+								identifier
+								title
+								state {
+									name
+									type
+								}
+							}
+						}
+					}
 				}
 				pageInfo {
 					hasNextPage
@@ -591,7 +699,10 @@ func (c *Client) IssueSearch(ctx context.Context, term string, filter map[string
 
 	var response struct {
 		SearchIssues struct {
-			Nodes    []Issue  `json:"nodes"`
+			Nodes []struct {
+				Issue
+				InverseRelations *IssueRelations `json:"inverseRelations"`
+			} `json:"nodes"`
 			PageInfo PageInfo `json:"pageInfo"`
 		} `json:"searchIssues"`
 	}
@@ -601,10 +712,14 @@ func (c *Client) IssueSearch(ctx context.Context, term string, filter map[string
 		return nil, err
 	}
 
-	return &Issues{
-		Nodes:    response.SearchIssues.Nodes,
-		PageInfo: response.SearchIssues.PageInfo,
-	}, nil
+	result := &Issues{PageInfo: response.SearchIssues.PageInfo}
+	for _, n := range response.SearchIssues.Nodes {
+		issue := n.Issue
+		mergeInverseRelations(&issue, n.InverseRelations)
+		result.Nodes = append(result.Nodes, issue)
+	}
+
+	return result, nil
 }
 
 // GetIssue returns a single issue by ID
@@ -909,16 +1024,7 @@ func (c *Client) GetIssue(ctx context.Context, id string) (*Issue, error) {
 	}
 
 	issue := response.Issue.Issue
-	// Merge inverse relations (tagged so callers know the direction).
-	if response.Issue.InverseRelations != nil {
-		if issue.Relations == nil {
-			issue.Relations = &IssueRelations{}
-		}
-		for i := range response.Issue.InverseRelations.Nodes {
-			response.Issue.InverseRelations.Nodes[i].Inverse = true
-			issue.Relations.Nodes = append(issue.Relations.Nodes, response.Issue.InverseRelations.Nodes[i])
-		}
-	}
+	mergeInverseRelations(&issue, response.Issue.InverseRelations)
 
 	return &issue, nil
 }
