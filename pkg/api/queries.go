@@ -438,6 +438,18 @@ func (c *Client) GetViewer(ctx context.Context) (*User, error) {
 }
 
 // GetIssues returns a list of issues with optional filtering
+// GetIssues fetches a page of issues.
+//
+// Observed caveat (2026-07): the relations/inverseRelations fields on this
+// bulk `issues` connection are unreliable server-side - Linear intermittently
+// returns null for them here even on small pages (seen at limit=20), while
+// the equivalent fields on the singular GetIssue query have never failed in
+// testing. This does not track Linear's documented per-endpoint rate limits
+// (issueCreate recovering on its own hourly window while this stayed null
+// rules that out) - it looks like a standing characteristic of resolving
+// relations on the list connection type, not a transient throttle. Treat a
+// null relations field from list/search as inconclusive, not as "no
+// relations" - call GetIssue for an authoritative answer.
 func (c *Client) GetIssues(ctx context.Context, filter map[string]interface{}, first int, after string, orderBy string) (*Issues, error) {
 	query := `
 		query Issues($filter: IssueFilter, $first: Int, $after: String, $orderBy: PaginationOrderBy) {
@@ -588,7 +600,9 @@ func mergeInverseRelations(issue *Issue, inverse *IssueRelations) {
 	}
 }
 
-// IssueSearch returns issues that match a full-text query
+// IssueSearch returns issues that match a full-text query.
+// Same relations/inverseRelations reliability caveat as GetIssues - see its
+// doc comment.
 func (c *Client) IssueSearch(ctx context.Context, term string, filter map[string]interface{}, first int, after string, orderBy string, includeArchived bool) (*Issues, error) {
 	query := `
 		query IssueSearch($term: String!, $filter: IssueFilter, $first: Int, $after: String, $orderBy: PaginationOrderBy, $includeArchived: Boolean) {
