@@ -21,6 +21,8 @@ Use this skill when the user wants to inspect or modify Linear data through `lin
 - `issue list` and `issue search` exclude completed/canceled by default.
 - `issue search` may also need `--include-archived` for archived matches.
 - `issue list --cycle current` can validly return no rows if no active cycle exists.
+- `--label` requires `--team`; label names are team-scoped. Use `"Group / Child"` for a label inside a group.
+- Label nodes in `issue list` output have `parent: null` even for group children — only `issue get` populates the group. Match a grouped label by `id`, never by `name`.
 - Parent/sub-issue links are set via `issue update --parent` (not `issue create`).
 - If results look incomplete, retry with:
   - `--newer-than all_time`
@@ -62,6 +64,10 @@ linctl issue list --assignee me --newer-than all_time --include-completed --json
 
 # Issues in current cycle (if cycle exists)
 linctl issue list --cycle current --limit 20 --json
+
+# Issues carrying a label, or a label inside a group
+linctl issue list --team ENG --label bug --json
+linctl issue list --team ENG --label "Queue / Now" --json
 
 # Find issue by text, including archived/completed
 linctl issue search "<query>" --newer-than all_time --include-completed --include-archived --json

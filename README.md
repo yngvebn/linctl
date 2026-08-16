@@ -73,6 +73,8 @@ This improves performance and prevents overwhelming data loads. To see older ite
 **By default, `issue list` and `issue search` also filter out canceled and completed items. To see all items, use the `--include-completed` flag.**
 - Need archived matches? Add `--include-archived` when using `issue search`.
 
+**Label nodes on `issue list` do not carry their group.** A label inside a label group comes back from `issue get` with `parent` populated, but the *list* query returns `parent: null` for the same label — only the ID survives both. So when reading list output, identify a grouped label by its `id`, never by `name`: a group child and an unrelated top-level label of the same name are indistinguishable there. `--label` resolves to an ID before querying for exactly this reason, which is also why an unknown label is an error rather than an empty result set.
+
 
 ## Quick Start
 
@@ -111,8 +113,17 @@ linctl issue list --sort updated
 linctl issue list --cycle current
 linctl issue list --cycle 42
 
+# Filter issues by label (requires --team — label names are team-scoped)
+linctl issue list --team ENG --label bug
+linctl issue list --team ENG --label 5dc5053c-7c7c-459f-9006-8d08906e2aa3
+
+# A label inside a label group is addressed as "Group / Child".
+# The bare child name also works when nothing else in the team shares it.
+linctl issue list --team ENG --label "Queue / Now"
+
 # Search issues using Linear's full-text index (shares the same filters as list)
 linctl issue search "login bug" --team ENG
+linctl issue search "login bug" --team ENG --label "Queue / Now"
 linctl issue search "customer:" --include-completed --include-archived
 
 # List recent issues (last 2 weeks instead of default 6 months)
