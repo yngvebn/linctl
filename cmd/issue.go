@@ -87,7 +87,7 @@ Examples:
 		client := api.NewClient(authHeader)
 
 		// Build filter from flags
-		filter := buildIssueFilter(cmd)
+		filter := buildIssueFilter(cmd, resolveLabelFlagOrExit(cmd, client, plaintext, jsonOut))
 
 		limit, _ := cmd.Flags().GetInt("limit")
 		if limit == 0 {
@@ -307,7 +307,7 @@ Examples:
 
 		client := api.NewClient(authHeader)
 
-		filter := buildIssueFilter(cmd)
+		filter := buildIssueFilter(cmd, resolveLabelFlagOrExit(cmd, client, plaintext, jsonOut))
 
 		limit, _ := cmd.Flags().GetInt("limit")
 		if limit == 0 {
@@ -847,8 +847,39 @@ var issueGetCmd = &cobra.Command{
 	},
 }
 
-func buildIssueFilter(cmd *cobra.Command) map[string]interface{} {
+// resolveLabelFlagOrExit resolves --label to a label ID, exiting with a clear
+// message rather than a confusing empty result set when it cannot. Returns ""
+// when --label was not supplied.
+func resolveLabelFlagOrExit(cmd *cobra.Command, client *api.Client, plaintext, jsonOut bool) string {
+	labelRef, _ := cmd.Flags().GetString("label")
+	teamKey, _ := cmd.Flags().GetString("team")
+
+	labelID, err := resolveLabelFlag(context.Background(), client, labelRef, teamKey)
+	if err != nil {
+		output.Error(err.Error(), plaintext, jsonOut)
+		os.Exit(1)
+	}
+	return labelID
+}
+
+// buildIssueFilter assembles the IssueFilter from the command's flags.
+//
+// labelID is passed in already resolved rather than read from the flag here,
+// because resolving a label name needs an API round-trip and this function is
+// deliberately pure — it is the piece the filter-composition tests exercise.
+func buildIssueFilter(cmd *cobra.Command, labelID string) map[string]interface{} {
 	filter := make(map[string]interface{})
+
+	// Filter on the label's ID, never its name. A grouped label ("Queue / Now")
+	// arrives from the issue list query with `parent: null`, so a name filter
+	// cannot distinguish it from an unrelated top-level label of the same name.
+	if labelID != "" {
+		filter["labels"] = map[string]interface{}{
+			"some": map[string]interface{}{
+				"id": map[string]interface{}{"eq": labelID},
+			},
+		}
+	}
 
 	if assignee, _ := cmd.Flags().GetString("assignee"); assignee != "" {
 		if assignee == "me" {
@@ -2379,6 +2410,13 @@ func normalizeValues(values []string) []string {
 	return normalized
 }
 
+// findLabelByNameOrID resolves a label for label ASSIGNMENT (--labels on create
+// and update): first match on ID or name wins.
+//
+// Filtering uses ResolveLabelRef in label_resolve.go instead, which is stricter
+// — it understands "Group / Child" paths and rejects an ambiguous bare name
+// rather than picking one. The two are deliberately separate: tightening this
+// one would change create/update behaviour, which is out of scope here.
 func findLabelByNameOrID(labels []api.Label, value string) *api.Label {
 	normalized := strings.TrimSpace(value)
 	if normalized == "" {
@@ -2438,6 +2476,8 @@ func init() {
 	issueListCmd.Flags().StringP("state", "s", "", "Filter by state name")
 	issueListCmd.Flags().StringP("team", "t", "", "Filter by team key")
 	issueListCmd.Flags().StringP("project", "P", "", "Filter by project name (substring) or project ID")
+	// No shorthand: -l is taken by --limit.
+	issueListCmd.Flags().String("label", "", "Filter by label name or ID; use \"Group / Child\" for a grouped label (requires --team)")
 	issueListCmd.Flags().IntP("priority", "r", -1, "Filter by priority (0=None, 1=Urgent, 2=High, 3=Normal, 4=Low)")
 	issueListCmd.Flags().StringP("cycle", "y", "", "Filter by cycle ('current' or cycle number)")
 	issueListCmd.Flags().IntP("limit", "l", 50, "Maximum number of issues to fetch")
@@ -2449,6 +2489,7 @@ func init() {
 	issueSearchCmd.Flags().StringP("assignee", "a", "", "Filter by assignee (email or 'me')")
 	issueSearchCmd.Flags().StringP("state", "s", "", "Filter by state name")
 	issueSearchCmd.Flags().StringP("team", "t", "", "Filter by team key")
+	issueSearchCmd.Flags().String("label", "", "Filter by label name or ID; use \"Group / Child\" for a grouped label (requires --team)")
 	issueSearchCmd.Flags().IntP("priority", "r", -1, "Filter by priority (0=None, 1=Urgent, 2=High, 3=Normal, 4=Low)")
 	issueSearchCmd.Flags().StringP("cycle", "y", "", "Filter by cycle ('current' or cycle number)")
 	issueSearchCmd.Flags().IntP("limit", "l", 50, "Maximum number of issues to fetch")
