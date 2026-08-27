@@ -81,18 +81,17 @@ func TestRelationAddBlocksSendsCorrectMutation(t *testing.T) {
 		return nil, nil
 	})
 
-	// "LIN-100 --blocks LIN-200" means LIN-100 blocks LIN-200
-	// => LIN-200 is blocked by LIN-100
-	// => API: issueId=LIN-200 (uuid-200), relatedIssueId=LIN-100 (uuid-100), type=blocks
+	// "LIN-100 --blocks LIN-200" means LIN-100 blocks LIN-200.
+	// Linear stores the subject in issueId, so:
+	// => API: issueId=LIN-100 (uuid-100), relatedIssueId=LIN-200 (uuid-200), type=blocks
 	issueRelationAddCmd.Flags().Set("blocks", "LIN-200")
 	issueRelationAddCmd.Run(issueRelationAddCmd, []string{"LIN-100"})
 
-	// Verify the API was called with the correct swapped IDs
-	if capturedInput["issueId"] != "uuid-200" {
-		t.Fatalf("expected issueId=uuid-200 (the blocked issue), got %v", capturedInput["issueId"])
+	if capturedInput["issueId"] != "uuid-100" {
+		t.Fatalf("expected issueId=uuid-100 (the blocker), got %v", capturedInput["issueId"])
 	}
-	if capturedInput["relatedIssueId"] != "uuid-100" {
-		t.Fatalf("expected relatedIssueId=uuid-100 (the blocker), got %v", capturedInput["relatedIssueId"])
+	if capturedInput["relatedIssueId"] != "uuid-200" {
+		t.Fatalf("expected relatedIssueId=uuid-200 (the blocked issue), got %v", capturedInput["relatedIssueId"])
 	}
 	if capturedInput["type"] != "blocks" {
 		t.Fatalf("expected type=blocks, got %v", capturedInput["type"])
@@ -149,16 +148,17 @@ func TestRelationAddBlockedBySendsCorrectMutation(t *testing.T) {
 		return nil, nil
 	})
 
-	// "LIN-100 --blocked-by LIN-200" means LIN-100 is blocked by LIN-200
-	// => API: issueId=LIN-100 (uuid-100), relatedIssueId=LIN-200 (uuid-200), type=blocks
+	// "LIN-100 --blocked-by LIN-200" means LIN-200 blocks LIN-100, and the
+	// subject goes in issueId:
+	// => API: issueId=LIN-200 (uuid-200), relatedIssueId=LIN-100 (uuid-100), type=blocks
 	issueRelationAddCmd.Flags().Set("blocked-by", "LIN-200")
 	issueRelationAddCmd.Run(issueRelationAddCmd, []string{"LIN-100"})
 
-	if capturedInput["issueId"] != "uuid-100" {
-		t.Fatalf("expected issueId=uuid-100, got %v", capturedInput["issueId"])
+	if capturedInput["issueId"] != "uuid-200" {
+		t.Fatalf("expected issueId=uuid-200 (the blocker), got %v", capturedInput["issueId"])
 	}
-	if capturedInput["relatedIssueId"] != "uuid-200" {
-		t.Fatalf("expected relatedIssueId=uuid-200, got %v", capturedInput["relatedIssueId"])
+	if capturedInput["relatedIssueId"] != "uuid-100" {
+		t.Fatalf("expected relatedIssueId=uuid-100 (the blocked issue), got %v", capturedInput["relatedIssueId"])
 	}
 	if capturedInput["type"] != "blocks" {
 		t.Fatalf("expected type=blocks, got %v", capturedInput["type"])
@@ -182,9 +182,9 @@ func TestRelationListShowsRelations(t *testing.T) {
 			t.Fatalf("expected IssueRelations query, got: %s", gqlReq.Query)
 		}
 
-		// Return one forward "blocks" relation (this issue is blocked by LIN-200)
-		// and one inverse "blocks" relation (this issue blocks LIN-300).
-		// The labels should differ: "blocked by" vs "blocks".
+		// Forward row: LIN-100 blocks LIN-200.
+		// Inverse row: LIN-300 blocks LIN-100, i.e. LIN-100 is blocked by LIN-300.
+		// Labels AND the named counterpart must differ between the two.
 		body := `{"data":{"issue":{
 			"relations":{"nodes":[
 				{"id":"rel-1","type":"blocks","issue":{"id":"uuid-100","identifier":"LIN-100","title":"This issue"},"relatedIssue":{"id":"uuid-200","identifier":"LIN-200","title":"Blocker task"}}
@@ -213,21 +213,25 @@ func TestRelationListShowsRelations(t *testing.T) {
 	os.Stdout = oldStdout
 	got := buf.String()
 
-	// Forward "blocks" relation should display as "blocked by"
+	// Forward row must read "blocks" and name LIN-200.
+	if !strings.Contains(got, "blocks") {
+		t.Fatalf("expected forward blocks relation labeled 'blocks', got:\n%s", got)
+	}
+	if !strings.Contains(got, "LIN-200") {
+		t.Fatalf("expected forward relation to name LIN-200, got:\n%s", got)
+	}
+	// Inverse row must read "blocked by" and name LIN-300 — naming the queried
+	// issue instead is the self-referential bug this guards against.
 	if !strings.Contains(got, "blocked by") {
-		t.Fatalf("expected forward blocks relation labeled 'blocked by', got:\n%s", got)
+		t.Fatalf("expected inverse blocks relation labeled 'blocked by', got:\n%s", got)
 	}
-	// Inverse "blocks" relation should display as "blocks" (not "blocked by")
-	lines := strings.Split(got, "\n")
-	var secondLabel string
-	for _, line := range lines {
-		if strings.Contains(line, "rel-2") {
-			secondLabel = line
-			break
+	if !strings.Contains(got, "LIN-300") {
+		t.Fatalf("expected inverse relation to name LIN-300, got:\n%s", got)
+	}
+	for _, line := range strings.Split(got, "\n") {
+		if strings.Contains(line, "blocked by") && strings.Contains(line, "LIN-100") {
+			t.Fatalf("inverse relation named the queried issue LIN-100, got:\n%s", got)
 		}
-	}
-	if !strings.Contains(secondLabel, "blocks") || strings.Contains(secondLabel, "blocked by") {
-		t.Fatalf("expected inverse blocks relation labeled 'blocks', got:\n%s", got)
 	}
 }
 
@@ -270,7 +274,7 @@ func TestRelationRemoveSendsDeleteMutation(t *testing.T) {
 func TestRelationTypeLabel(t *testing.T) {
 	// Forward (non-inverse) labels
 	forwardCases := map[string]string{
-		"blocks":    "blocked by",
+		"blocks":    "blocks",
 		"duplicate": "duplicate of",
 		"related":   "related to",
 		"similar":   "similar to",
@@ -284,7 +288,7 @@ func TestRelationTypeLabel(t *testing.T) {
 
 	// Inverse labels — direction-sensitive types should flip
 	inverseCases := map[string]string{
-		"blocks":    "blocks",
+		"blocks":    "blocked by",
 		"duplicate": "has duplicate",
 		"related":   "related to",
 		"similar":   "similar to",

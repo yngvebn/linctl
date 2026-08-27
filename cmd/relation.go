@@ -195,31 +195,43 @@ Examples:
 
 		// Map the CLI relation type to the Linear API type.
 		// Linear's issueRelationCreate uses:
-		//   issueId = the issue that has the relation
-		//   relatedIssueId = the other issue
-		//   type = "blocks" means issueId is blocked by relatedIssueId
+		//   issueId        = the SUBJECT of the relation
+		//   relatedIssueId = the OBJECT of the relation
+		//   type = "blocks" means issueId BLOCKS relatedIssueId
+		//
+		// The subject/object reading is the one that matters, and it used to be
+		// documented here the other way round ("issueId is blocked by
+		// relatedIssueId"). Both blocking cases below were derived from that
+		// premise, so both were written inverted: `add A --blocked-by B` stored
+		// "A blocks B". Verified against the live API on 2026-08-27 by reading
+		// back a relation created through this command and comparing it with the
+		// same relation as Linear's own UI renders it.
 		//
 		// CLI semantics:
 		//   --blocks TARGET     => "this issue blocks TARGET"
-		//                       => TARGET is blocked by THIS
-		//                       => API: issueId=TARGET, relatedIssueId=THIS, type=blocks
+		//                       => API: issueId=THIS, relatedIssueId=TARGET, type=blocks
 		//   --blocked-by SOURCE => "this issue is blocked by SOURCE"
-		//                       => API: issueId=THIS, relatedIssueId=SOURCE, type=blocks
+		//                       => SOURCE blocks THIS
+		//                       => API: issueId=SOURCE, relatedIssueId=THIS, type=blocks
 		//   --related TARGET    => API: issueId=THIS, relatedIssueId=TARGET, type=related
 		//   --duplicate TARGET  => API: issueId=THIS, relatedIssueId=TARGET, type=duplicate
+		//
+		// Only the two blocking cases were wrong. "duplicate" reads correctly
+		// under the corrected premise — issueId is a duplicate OF relatedIssueId —
+		// so it is deliberately left as it was.
 
 		var apiIssueID, apiRelatedIssueID, apiType string
 
 		switch relationType {
 		case "blocks":
-			// "LIN-123 blocks LIN-456" => LIN-456 is blocked by LIN-123
-			apiIssueID = relatedIssue.ID
-			apiRelatedIssueID = issue.ID
-			apiType = "blocks"
-		case "blocked-by":
-			// "LIN-123 is blocked by LIN-456" => LIN-123 is blocked by LIN-456
+			// "LIN-123 blocks LIN-456" => subject LIN-123, object LIN-456
 			apiIssueID = issue.ID
 			apiRelatedIssueID = relatedIssue.ID
+			apiType = "blocks"
+		case "blocked-by":
+			// "LIN-123 is blocked by LIN-456" => subject LIN-456, object LIN-123
+			apiIssueID = relatedIssue.ID
+			apiRelatedIssueID = issue.ID
 			apiType = "blocks"
 		case "related":
 			apiIssueID = issue.ID
@@ -311,9 +323,25 @@ Examples:
 	},
 }
 
-// relationOtherIssue returns the "other" issue in a relation — either Issue or
-// RelatedIssue, whichever is populated.
+// relationOtherIssue returns the issue at the far end of a relation, from the
+// point of view of the issue that was queried.
+//
+// A forward row (issue.relations) has Issue == the queried issue, so the far end
+// is RelatedIssue. An inverse row (issue.inverseRelations) has RelatedIssue ==
+// the queried issue, so the far end is Issue. Preferring RelatedIssue
+// unconditionally — as this did — made every inverse row name the issue you were
+// already looking at, which rendered as nonsense like "RET-1061 blocks RET-1061"
+// on RET-1061's own listing.
 func relationOtherIssue(rel *api.IssueRelation) *api.Issue {
+	if rel.Inverse {
+		if rel.Issue != nil {
+			return rel.Issue
+		}
+		if rel.RelatedIssue != nil {
+			return rel.RelatedIssue
+		}
+		return &api.Issue{Identifier: "?", Title: "unknown"}
+	}
 	if rel.RelatedIssue != nil {
 		return rel.RelatedIssue
 	}
@@ -323,16 +351,21 @@ func relationOtherIssue(rel *api.IssueRelation) *api.Issue {
 	return &api.Issue{Identifier: "?", Title: "unknown"}
 }
 
-// relationTypeLabel returns a human-readable label for a relation type.
-// When inverse is true, the label is flipped to reflect the opposite direction
-// (e.g. "blocks" instead of "blocked by").
+// relationTypeLabel returns a human-readable label for a relation type, phrased
+// from the queried issue's point of view.
+//
+// A forward "blocks" row means the queried issue is the subject: it BLOCKS the
+// other one. An inverse row means it is the object: it is BLOCKED BY the other
+// one. These two were the wrong way round, which cancelled out the inverted
+// write path in `add` and made the CLI look self-consistent while disagreeing
+// with Linear.
 func relationTypeLabel(t string, inverse bool) string {
 	switch strings.ToLower(t) {
 	case "blocks":
 		if inverse {
-			return "blocks"
+			return "blocked by"
 		}
-		return "blocked by"
+		return "blocks"
 	case "duplicate":
 		if inverse {
 			return "has duplicate"
