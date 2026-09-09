@@ -22,6 +22,13 @@ func withTempHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	// Neutralise the ambient key for the same reason HOME is redirected: anyone who
+	// actually uses linctl has LINCTL_API_KEY exported, and it takes precedence over
+	// both pass and the config file. Without this, `go test ./...` fails on a clean
+	// checkout for every real user of the tool — the pass-path test reads the
+	// developer's own key instead of its fixture. Tests that want the env var set it
+	// after calling this helper, and t.Setenv there wins.
+	t.Setenv("LINCTL_API_KEY", "")
 	return home
 }
 
