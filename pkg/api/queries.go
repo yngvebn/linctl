@@ -929,6 +929,10 @@ func (c *Client) GetIssue(ctx context.Context, id string) (*Issue, error) {
 							id
 							identifier
 							title
+							state {
+								name
+								type
+							}
 						}
 						relatedIssue {
 							id
@@ -949,6 +953,10 @@ func (c *Client) GetIssue(ctx context.Context, id string) (*Issue, error) {
 							id
 							identifier
 							title
+							state {
+								name
+								type
+							}
 						}
 						relatedIssue {
 							id
