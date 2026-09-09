@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/yngvebn/linctl/pkg/api"
@@ -64,8 +65,31 @@ Examples:
 			os.Exit(1)
 		}
 
+		kinds, _ := cmd.Flags().GetStringSlice("kind")
+		matches, err := parseRelationKinds(kinds)
+		if err != nil {
+			output.Error(err.Error(), plaintext, jsonOut)
+			os.Exit(1)
+		}
+		if len(kinds) > 0 {
+			filtered := make([]api.IssueRelation, 0, len(relations))
+			for _, rel := range relations {
+				if matches(rel) {
+					filtered = append(filtered, rel)
+				}
+			}
+			relations = filtered
+		}
+
+		// Most-actionable first: blocked-by, blocks, duplicate, similar, related.
+		sortRelationsByActionability(relations)
+
 		if len(relations) == 0 {
-			output.Info(fmt.Sprintf("No relations found for %s", issueID), plaintext, jsonOut)
+			if len(kinds) > 0 {
+				output.Info(fmt.Sprintf("No %s relations found for %s", strings.Join(kinds, ","), issueID), plaintext, jsonOut)
+			} else {
+				output.Info(fmt.Sprintf("No relations found for %s", issueID), plaintext, jsonOut)
+			}
 			return
 		}
 
@@ -380,6 +404,108 @@ func relationTypeLabel(t string, inverse bool) string {
 	}
 }
 
+// relationRank orders a relation by how much it should change what you do next,
+// phrased from the queried issue's point of view. Blockers come first because they
+// gate work; duplicates next because they decide whether to work at all; `related`
+// last because it is context rather than an instruction.
+//
+// `related` is deliberately shown rather than filtered out. It is 73% of the edges in
+// the retrospective.fun workspace and carries provenance — "this fell out of that
+// epic" — plus the prior-art graph: RET-853's six `related` edges are its six sibling
+// GDPR tickets, which is exactly what you want when picking it up cold. Ranking
+// de-emphasises it by position without hiding it. Use --kind when you want less.
+func relationRank(t string, inverse bool) int {
+	switch strings.ToLower(t) {
+	case "blocks":
+		if inverse {
+			return 0 // blocked by — someone else gates this
+		}
+		return 1 // blocks — this gates someone else
+	case "duplicate":
+		return 2
+	case "similar":
+		return 3
+	case "related":
+		return 4
+	default:
+		return 5
+	}
+}
+
+// sortRelationsByActionability sorts in place, most-actionable first, keeping the
+// server's order within a rank so repeated runs read the same.
+func sortRelationsByActionability(rels []api.IssueRelation) {
+	sort.SliceStable(rels, func(i, j int) bool {
+		return relationRank(rels[i].Type, rels[i].Inverse) < relationRank(rels[j].Type, rels[j].Inverse)
+	})
+}
+
+// relationKindAliases maps what a caller would type to Linear's stored relation type.
+// "blocked-by" and "blocks" are the same stored type in opposite directions, so they
+// resolve to the type plus a direction the filter has to check.
+var relationKindAliases = map[string]struct {
+	Type           string
+	RequireInverse *bool
+}{
+	"blocks":     {Type: "blocks", RequireInverse: boolPtr(false)},
+	"blocked-by": {Type: "blocks", RequireInverse: boolPtr(true)},
+	"blocked":    {Type: "blocks", RequireInverse: boolPtr(true)},
+	"duplicate":  {Type: "duplicate"},
+	"related":    {Type: "related"},
+	"similar":    {Type: "similar"},
+}
+
+func boolPtr(b bool) *bool { return &b }
+
+// parseRelationKinds turns --kind values into a matcher. An unknown kind is an error
+// rather than an empty result: silently matching nothing would read as "no relations",
+// which is the failure mode this whole area keeps producing.
+func parseRelationKinds(kinds []string) (func(api.IssueRelation) bool, error) {
+	if len(kinds) == 0 {
+		return func(api.IssueRelation) bool { return true }, nil
+	}
+
+	type want struct {
+		Type           string
+		RequireInverse *bool
+	}
+	var wants []want
+	for _, raw := range kinds {
+		for _, k := range strings.Split(raw, ",") {
+			k = strings.TrimSpace(strings.ToLower(k))
+			if k == "" {
+				continue
+			}
+			alias, ok := relationKindAliases[k]
+			if !ok {
+				valid := make([]string, 0, len(relationKindAliases))
+				for name := range relationKindAliases {
+					valid = append(valid, name)
+				}
+				sort.Strings(valid)
+				return nil, fmt.Errorf("unknown relation kind %q (valid: %s)", k, strings.Join(valid, ", "))
+			}
+			wants = append(wants, want{Type: alias.Type, RequireInverse: alias.RequireInverse})
+		}
+	}
+	if len(wants) == 0 {
+		return func(api.IssueRelation) bool { return true }, nil
+	}
+
+	return func(rel api.IssueRelation) bool {
+		relType := strings.ToLower(rel.Type)
+		for _, w := range wants {
+			if relType != w.Type {
+				continue
+			}
+			if w.RequireInverse == nil || *w.RequireInverse == rel.Inverse {
+				return true
+			}
+		}
+		return false
+	}, nil
+}
+
 func init() {
 	issueCmd.AddCommand(issueRelationCmd)
 	issueRelationCmd.AddCommand(issueRelationListCmd)
@@ -392,4 +518,8 @@ func init() {
 	issueRelationAddCmd.Flags().String("related", "", "Related issue (issue identifier)")
 	issueRelationAddCmd.Flags().String("duplicate", "", "Issue that this is a duplicate of (issue identifier)")
 	issueRelationAddCmd.Flags().String("similar", "", "Issue that is similar to this issue (issue identifier)")
+
+	// Opt-in narrowing for scripted callers. Off by default: nothing is hidden unless
+	// asked for, because a relation you did not know existed is the one worth seeing.
+	issueRelationListCmd.Flags().StringSlice("kind", nil, "Only show these relation kinds (blocks, blocked-by, duplicate, related, similar); comma-separated or repeated")
 }

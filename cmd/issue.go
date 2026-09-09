@@ -538,28 +538,33 @@ var issueGetCmd = &cobra.Command{
 				}
 			}
 
-			// Relations
+			// Relations.
+			//
+			// This used to hand-roll its own rendering: it read relation.RelatedIssue
+			// unconditionally and mapped the type with a local switch. Both were wrong
+			// on an inverse row, where RelatedIssue IS the queried issue — so every
+			// inverse relation printed the issue you were already looking at, with the
+			// direction backwards. RET-1066, which HAS three duplicates, rendered as
+			// "Duplicate of: RET-1066" three times, and its real counterparties were
+			// invisible from this command entirely.
+			//
+			// relation.go already had relationOtherIssue and relationTypeLabel doing
+			// this correctly for `issue relation list`. The duplication was the defect;
+			// the fix is to delete this copy rather than teach it the same lesson.
 			if issue.Relations != nil && len(issue.Relations.Nodes) > 0 {
+				relations := make([]api.IssueRelation, len(issue.Relations.Nodes))
+				copy(relations, issue.Relations.Nodes)
+				sortRelationsByActionability(relations)
+
 				fmt.Printf("\n## Related Issues\n")
-				for _, relation := range issue.Relations.Nodes {
-					if relation.RelatedIssue != nil {
-						relationType := relation.Type
-						switch relationType {
-						case "blocks":
-							relationType = "Blocks"
-						case "blocked":
-							relationType = "Blocked by"
-						case "related":
-							relationType = "Related to"
-						case "duplicate":
-							relationType = "Duplicate of"
-						}
-						fmt.Printf("- %s: %s - %s", relationType, relation.RelatedIssue.Identifier, relation.RelatedIssue.Title)
-						if relation.RelatedIssue.State != nil {
-							fmt.Printf(" [%s]", relation.RelatedIssue.State.Name)
-						}
-						fmt.Println()
+				for i := range relations {
+					other := relationOtherIssue(&relations[i])
+					label := relationTypeLabel(relations[i].Type, relations[i].Inverse)
+					fmt.Printf("- %s: %s - %s", label, other.Identifier, other.Title)
+					if other.State != nil {
+						fmt.Printf(" [%s]", other.State.Name)
 					}
+					fmt.Println()
 				}
 			}
 

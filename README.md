@@ -193,8 +193,10 @@ linctl issue attachment download LIN-123 --id ATTACHMENT-ID
 linctl issue attachment download LIN-123 --name spec.md --output ./spec.md
 
 # Manage issue relations (blocks, blocked-by, related, duplicate, similar)
-linctl issue relation list LIN-123
+linctl issue relation list LIN-123             # ordered blocked-by, blocks, duplicate, related
 linctl issue relation ls LIN-123 -j            # JSON output
+linctl issue relation list LIN-123 --kind blocked-by      # only what gates this issue
+linctl issue relation list LIN-123 --kind duplicate,related
 linctl issue relation add LIN-123 --blocks LIN-456
 linctl issue relation add LIN-123 --blocked-by LIN-456
 linctl issue relation add LIN-123 --related LIN-456
